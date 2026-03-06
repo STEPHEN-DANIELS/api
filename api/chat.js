@@ -1,37 +1,58 @@
-async function sendMessage() {
-            const input = document.getElementById('chatInput');
-            const message = input.value.trim();
-            
-            if (message) {
-                // 1. Show the user's message immediately
-                addMessage(message, 'user');
-                input.value = '';
-                
-                // Optional: Show typing indicator here while waiting
-                
-                try {
-                    // 2. Send the message to YOUR backend server
-                    // Replace 'http://localhost:3000/chat' with your actual backend URL once deployed
-                    const response = await fetch('http://localhost:3000/chat', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({ message: message })
-                    });
+export default async function handler(req, res) {
+  // 1. Add CORS Headers to allow GitHub Pages to connect
+  res.setHeader('Access-Control-Allow-Credentials', true);
+  res.setHeader('Access-Control-Allow-Origin', '*'); 
+  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
+  );
 
-                    if (!response.ok) {
-                        throw new Error('Network response was not ok');
-                    }
+  // 2. Handle the "preflight" browser request
+  if (req.method === 'OPTIONS') {
+    res.status(200).end();
+    return;
+  }
 
-                    const data = await response.json();
-                    
-                    // 3. Display the response from ChatGPT (via your backend)
-                    addMessage(data.reply, 'developer');
+  // 3. Stop any non-POST requests
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
 
-                } catch (error) {
-                    console.error('Error:', error);
-                    addMessage("Sorry, I'm having trouble connecting right now.", 'developer');
-                }
-            }
-        }
+  const { message } = req.body;
+  const apiKey = process.env.OPENAI_API_KEY;
+
+  if (!apiKey) {
+     return res.status(500).json({ error: 'API key is missing on the server' });
+  }
+
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: "gpt-3.5-turbo", // You can also change this to gpt-4 if you prefer
+        messages: [
+          { role: "system", content: "You are a helpful assistant for Wexford Edu Hub, a premium learning platform." },
+          { role: "user", content: message }
+        ]
+      })
+    });
+
+    const data = await response.json();
+    
+    if (data.error) {
+      throw new Error(data.error.message);
+    }
+
+    // Send the successful AI reply back to your HTML
+    res.status(200).json({ reply: data.choices[0].message.content });
+    
+  } catch (error) {
+    console.error('OpenAI Error:', error);
+    res.status(500).json({ error: 'Error communicating with AI' });
+  }
+}
